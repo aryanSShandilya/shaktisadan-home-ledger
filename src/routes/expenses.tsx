@@ -30,16 +30,21 @@ function ExpensesPage() {
   const [date, setDate] = useState(todayISO());
   const [q, setQ] = useState("");
 
-  function handleAdd(e: React.FormEvent) {
+  async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
     const p = Number(price);
     const qn = Number(quantity);
     if (!name.trim()) return toast.error("Name required");
     if (!Number.isFinite(p) || p <= 0) return toast.error("Price must be > 0");
     if (!Number.isFinite(qn) || qn <= 0) return toast.error("Quantity must be > 0");
-    expensesApi.add({ name: name.trim(), price: p, quantity: qn, date });
-    toast.success(`Added ${name}`);
-    setName(""); setPrice(""); setQuantity("1");
+
+    try {
+      await expensesApi.add({ name: name.trim(), price: p, quantity: qn, date });
+      toast.success(`Added ${name}`);
+      setName(""); setPrice(""); setQuantity("1");
+    } catch (error) {
+      toast.error("Could not save expense. Please try again.");
+    }
   }
 
   const filtered = useMemo(() => {
@@ -119,8 +124,8 @@ function ExpensesPage() {
                       <Button
                         size="icon"
                         variant="ghost"
-                        onClick={() => {
-                          expensesApi.remove(e.id);
+                        onClick={async () => {
+                          await expensesApi.remove(e.id);
                           toast.success("Deleted");
                         }}
                         aria-label="Delete"

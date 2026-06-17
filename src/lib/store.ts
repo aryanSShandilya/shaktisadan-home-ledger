@@ -1,6 +1,7 @@
 // Local-first data store for ShaktiSadan Ledger.
 // Backed by localStorage; swap with Supabase later (see CONNECT.md).
 import { useSyncExternalStore } from "react";
+import { supabase } from "./supabase";
 
 export type Expense = {
   id: string;
@@ -10,6 +11,50 @@ export type Expense = {
   date: string;      // YYYY-MM-DD
   created_at: string;
 };
+
+type RawExpense = {
+  id: number | string;
+  name: string;
+  price: string | number;
+  quantity: string | number;
+  expense_date: string;
+  created_at: string;
+};
+
+const remoteEnabled =
+  typeof window !== "undefined" &&
+  Boolean(import.meta.env.VITE_SUPABASE_URL) &&
+  Boolean(import.meta.env.VITE_SUPABASE_ANON_KEY);
+
+const normalizeExpense = (row: RawExpense): Expense => ({
+  id: String(row.id),
+  name: row.name,
+  price: Number(row.price),
+  quantity: Number(row.quantity),
+  date: row.expense_date,
+  created_at: row.created_at,
+});
+
+async function loadRemoteExpenses() {
+  if (!remoteEnabled) return;
+
+  const { data, error } = await supabase
+    .from<RawExpense>("expenses")
+    .select("id,name,price,quantity,expense_date,created_at")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.warn("Supabase expenses load failed", error);
+    return;
+  }
+
+  write({ ...state, expenses: (data ?? []).map(normalizeExpense) });
+}
+
+if (remoteEnabled) {
+  void loadRemoteExpenses();
+}
+
 
 export type DailyMark = {
   date: string;      // YYYY-MM-DD
@@ -124,15 +169,49 @@ export const todayISO = () => {
 // ---------------- Mutations ----------------
 
 export const expensesApi = {
-  add(input: Omit<Expense, "id" | "created_at">) {
-    const item: Expense = { ...input, id: uid(), created_at: new Date().toISOString() };
+  async add(input: Omit<Expense, "id" | "created_at">) {
+    const payload = {
+      name: input.name,
+      price: input.price,
+      quantity: input.quantity,
+      expense_date: input.date,
+    };
+
+    const { data, error } = await supabase
+      .from<RawExpense>("expenses")
+      .insert(payload)
+      .select("id,name,price,quantity,expense_date,created_at")
+      .single();
+
+    if (error) {
+      console.error("Failed to add expense to Supabase", error);
+      throw error;
+    }
+
+    const item = normalizeExpense(data);
     write({ ...state, expenses: [item, ...state.expenses] });
     return item;
   },
-  update(id: string, patch: Partial<Expense>) {
+  async update(id: string, patch: Partial<Expense>) {
+    const payload = {
+      ...patch,
+    };
+
+    const { error } = await supabase.from("expenses").update(payload).eq("id", id);
+    if (error) {
+      console.error("Failed to update expense in Supabase", error);
+      return;
+    }
+
     write({ ...state, expenses: state.expenses.map((e) => (e.id === id ? { ...e, ...patch } : e)) });
   },
-  remove(id: string) {
+  async remove(id: string) {
+    const { error } = await supabase.from("expenses").delete().eq("id", id);
+    if (error) {
+      console.error("Failed to delete expense from Supabase", error);
+      return;
+    }
+
     write({ ...state, expenses: state.expenses.filter((e) => e.id !== id) });
   },
 };
